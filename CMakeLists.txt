@@ -32,6 +32,8 @@ set(supported_implementations
   hipSYCL
   LLVM
   LLVM-MLIR
+  LLVM-MLIR-HIP
+  LLVM-HIP
   LLVM-CUDA
   triSYCL
 )
@@ -49,6 +51,10 @@ elseif(SYCL_IMPL STREQUAL "LLVM")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsycl")
 elseif(SYCL_IMPL STREQUAL "LLVM-MLIR")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsycl -fsycl-targets=spir64-unknown-unknown-syclmlir")
+elseif(SYCL_IMPL STREQUAL "LLVM-MLIR-HIP")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --gcc-toolchain=/public/home/liuying/Tools/gcc/11.2.0 -fsycl -fsycl-targets=amdgcn-amd-amdhsa-syclmlir -Xsycl-target-backend --offload-arch=gfx906")
+elseif(SYCL_IMPL STREQUAL "LLVM-HIP")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --gcc-toolchain=/public/home/liuying/Tools/gcc/11.2.0 -fsycl -fsycl-targets=amdgcn-amd-amdhsa -Xsycl-target-backend --offload-arch=gfx906")
 elseif(SYCL_IMPL STREQUAL "LLVM-CUDA")
   set(CMAKE_CXX_FLAGS
     "${CMAKE_CXX_FLAGS} -fsycl -fsycl-targets=nvptx64-nvidia-cuda-sycldevice")
@@ -56,10 +62,10 @@ elseif(SYCL_IMPL STREQUAL "triSYCL")
   find_package(TriSYCL MODULE REQUIRED)
 endif()
 
-set(ARCH_OPT "" CACHE STRING "Architecture-specific optimized kernels to build (e.g. tianhe). When set, the matching polybench/<ARCH_OPT>/*_opt.cpp kernels are compiled in place of the reference kernels.")
-set_property(CACHE ARCH_OPT PROPERTY STRINGS "" tianhe)
+set(ARCH_OPT "" CACHE STRING "Architecture-specific optimized kernels to build (e.g. tianhe, orise). When set, the matching polybench/<ARCH_OPT>/*_opt.cpp kernels are compiled in place of the reference kernels.")
+set_property(CACHE ARCH_OPT PROPERTY STRINGS "" tianhe orise)
 
-set(known_arch_opts tianhe)
+set(known_arch_opts tianhe orise)
 if(ARCH_OPT)
   list(FIND known_arch_opts ${ARCH_OPT} arch_idx)
   if(arch_idx EQUAL -1)
