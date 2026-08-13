@@ -1,0 +1,3 @@
+# Sunway-architecture optimized polybench kernels (2mm_opt, 3mm_opt, atax_opt, ...)
+# are built here when -DARCH_OPT=sunway is set. Each opt kernel has a distinct
+# *_opt target name so it never collides with the reference kernel.

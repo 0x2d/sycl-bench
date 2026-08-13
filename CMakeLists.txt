@@ -35,6 +35,7 @@ set(supported_implementations
   LLVM-MLIR-HIP
   LLVM-HIP
   LLVM-CUDA
+  LLVM-Sunway
   triSYCL
 )
 
@@ -58,14 +59,17 @@ elseif(SYCL_IMPL STREQUAL "LLVM-HIP")
 elseif(SYCL_IMPL STREQUAL "LLVM-CUDA")
   set(CMAKE_CXX_FLAGS
     "${CMAKE_CXX_FLAGS} -fsycl -fsycl-targets=nvptx64-nvidia-cuda-sycldevice")
+elseif(SYCL_IMPL STREQUAL "LLVM-Sunway")
+  # Sunway (SW) target: DPC++/sycl-mlir lowering to the athread offload target.
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsycl --target=athread")
 elseif(SYCL_IMPL STREQUAL "triSYCL")
   find_package(TriSYCL MODULE REQUIRED)
 endif()
 
 set(ARCH_OPT "" CACHE STRING "Architecture-specific optimized kernels to build (e.g. tianhe, orise). When set, the matching polybench/<ARCH_OPT>/*_opt.cpp kernels are compiled in place of the reference kernels.")
-set_property(CACHE ARCH_OPT PROPERTY STRINGS "" tianhe orise)
+set_property(CACHE ARCH_OPT PROPERTY STRINGS "" tianhe orise sunway)
 
-set(known_arch_opts tianhe orise)
+set(known_arch_opts tianhe orise sunway)
 if(ARCH_OPT)
   list(FIND known_arch_opts ${ARCH_OPT} arch_idx)
   if(arch_idx EQUAL -1)
@@ -142,6 +146,14 @@ foreach(benchmark IN LISTS benchmarks)
 
   if(SYCL_IMPL STREQUAL "LLVM")
     target_compile_definitions(${target} PRIVATE __LLVM_SYCL__)
+  endif()
+
+  if(SYCL_IMPL STREQUAL "LLVM-Sunway")
+    # LLVM/DPC++ lowering to the Sunway athread target. __LLVM_SYCL__ selects the
+    # same runtime path as plain LLVM; SYCL_BENCH_SUNWAY gates the Sunway-specific
+    # workaround in prefetched_buffer.h (the eager-H2D dummy kernel is unsupported
+    # on the athread backend and is skipped there).
+    target_compile_definitions(${target} PRIVATE __LLVM_SYCL__ SYCL_BENCH_SUNWAY)
   endif()
 
   if(SYCL_IMPL STREQUAL "LLVM-CUDA")

@@ -20,7 +20,13 @@ template <class BufferType>
 inline void forceDataTransfer(cl::sycl::queue& q, BufferType b) {
   q.submit([&](cl::sycl::handler& cgh) {
     auto acc = b.template get_access<cl::sycl::access::mode::read>(cgh);
+// The eager-H2D dummy single_task is unsupported on the Sunway athread backend;
+// skip it there and let the transfer happen lazily on first use instead.
+#ifndef SYCL_BENCH_SUNWAY
     cgh.single_task(InitializationDummyKernel{acc});
+#else
+    (void)acc;
+#endif
   });
   q.wait_and_throw();
 }
@@ -29,7 +35,11 @@ template <class BufferType>
 inline void forceDataAllocation(cl::sycl::queue& q, BufferType b) {
   q.submit([&](cl::sycl::handler& cgh) {
     auto acc = b.template get_access<cl::sycl::access::mode::discard_write>(cgh);
+#ifndef SYCL_BENCH_SUNWAY
     cgh.single_task(InitializationDummyKernel{acc});
+#else
+    (void)acc;
+#endif
   });
   q.wait_and_throw();
 }
