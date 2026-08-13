@@ -42,8 +42,8 @@ default_profile = {
   # Problem size will not be increased if this runtime is exceeded
   'max-allowed-runtime' : 10800.0, #seconds.
   'default-options' : {
-    '--size' : create_log_range(2**10, 2**10),
-    '--local' : create_log_range(256,256),
+    '--size' : create_log_range(2**6, 2**6),
+    '--local' : create_log_range(8,8),
     '--num-runs' : 10,
     '--output' : output_file
   },
@@ -144,9 +144,23 @@ profiles = {
 def invoke_benchmark(benchmark_executable, args):
   print("__________________________________________________\n")
   print("{} {}".format(os.path.basename(benchmark_executable), " ".join(args)))
-  
+
+  # Allow benchmarks to be launched through a job scheduler such as
+  # `yhrun` (Tianhe/NSCC SLURM-like launcher). Override or disable with the
+  # SYCL_BENCH_LAUNCHER environment variable, e.g.
+  #   SYCL_BENCH_LAUNCHER="yhrun -p thmt1"   (default)
+  #   SYCL_BENCH_LAUNCHER="srun -p gpu"      (use a different launcher)
+  #   SYCL_BENCH_LAUNCHER=""                 (run benchmarks directly)
+  launcher = os.environ.get('SYCL_BENCH_LAUNCHER', 'yhrun -p thmt1').strip()
+  if launcher:
+    cmd = launcher.split() + [benchmark_executable] + args
+  else:
+    cmd = [benchmark_executable] + args
+
+  print("==> Executing: {}".format(" ".join(cmd)))
+
   start = timeit.default_timer()
-  retcode = subprocess.call([benchmark_executable]+args)
+  retcode = subprocess.call(cmd)
   stop  = timeit.default_timer()
   
   elapsed_time = stop - start
@@ -219,12 +233,12 @@ if __name__ == '__main__':
         
         # Overwrite default options with values that may be specified
         # for individual benchmarks
-        if benchmark_name in individual_benchmark_options:
-          for param in individual_benchmark_options[benchmark_name]:
-            options[param] = individual_benchmark_options[benchmark_name][param]
-        if benchmark_name in individual_benchmark_flags:
-          for f in individual_benchmark_flags:
-            flags.add(f)
+        # if benchmark_name in individual_benchmark_options:
+        #   for param in individual_benchmark_options[benchmark_name]:
+        #     options[param] = individual_benchmark_options[benchmark_name][param]
+        # if benchmark_name in individual_benchmark_flags:
+        #   for f in individual_benchmark_flags:
+        #     flags.add(f)
         
         max_runtime = 0.0
         run_has_failed = False

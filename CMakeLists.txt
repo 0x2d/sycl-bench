@@ -31,6 +31,7 @@ set(supported_implementations
   ComputeCpp
   hipSYCL
   LLVM
+  LLVM-MLIR
   LLVM-CUDA
   triSYCL
 )
@@ -46,11 +47,24 @@ elseif(SYCL_IMPL STREQUAL "hipSYCL")
   find_package(hipSYCL CONFIG REQUIRED)
 elseif(SYCL_IMPL STREQUAL "LLVM")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsycl")
+elseif(SYCL_IMPL STREQUAL "LLVM-MLIR")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsycl -fsycl-targets=spir64-unknown-unknown-syclmlir")
 elseif(SYCL_IMPL STREQUAL "LLVM-CUDA")
   set(CMAKE_CXX_FLAGS
     "${CMAKE_CXX_FLAGS} -fsycl -fsycl-targets=nvptx64-nvidia-cuda-sycldevice")
 elseif(SYCL_IMPL STREQUAL "triSYCL")
   find_package(TriSYCL MODULE REQUIRED)
+endif()
+
+set(ARCH_OPT "" CACHE STRING "Architecture-specific optimized kernels to build (e.g. tianhe). When set, the matching polybench/<ARCH_OPT>/*_opt.cpp kernels are compiled in place of the reference kernels.")
+set_property(CACHE ARCH_OPT PROPERTY STRINGS "" tianhe)
+
+set(known_arch_opts tianhe)
+if(ARCH_OPT)
+  list(FIND known_arch_opts ${ARCH_OPT} arch_idx)
+  if(arch_idx EQUAL -1)
+    message(FATAL_ERROR "Unknown ARCH_OPT '${ARCH_OPT}'. Supported: ${known_arch_opts} (leave empty to build reference kernels only).")
+  endif()
 endif()
 
 set(benchmarks
@@ -95,6 +109,18 @@ set(benchmarks
   #compiletime/compiletime.cpp
 )
 
+# Architecture-specific optimized kernels. When ARCH_OPT is set (e.g. -DARCH_OPT=tianhe),
+# the opt variants under polybench/<ARCH_OPT>/ are built alongside the reference kernels.
+# Each opt kernel has a distinct target name (e.g. 2mm_opt) so it never collides with the
+# reference 2mm target.
+if(ARCH_OPT)
+  file(GLOB arch_opt_sources "${CMAKE_SOURCE_DIR}/polybench/${ARCH_OPT}/*_opt.cpp")
+  list(SORT arch_opt_sources)
+  foreach(src ${arch_opt_sources})
+    list(APPEND benchmarks ${src})
+  endforeach()
+endif()
+
 foreach(benchmark IN LISTS benchmarks)
   get_filename_component(target ${benchmark} NAME_WE)
 
@@ -130,4 +156,4 @@ endforeach(benchmark)
 #set_target_properties(compiletime PROPERTIES EXCLUDE_FROM_ALL 1)
 
 install(PROGRAMS bin/run-suite DESTINATION bin/)
-install(FILES ${PROJECT_SOURCE_DIR}/Brommy.bmp DESTINATION share/)
+install(FILES ${PROJECT_SOURCE_DIR}/share/Brommy.bmp DESTINATION share/)
