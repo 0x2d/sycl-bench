@@ -69,6 +69,13 @@ endif()
 set(ARCH_OPT "" CACHE STRING "Architecture-specific optimized kernels to build (e.g. tianhe, orise). When set, the matching polybench/<ARCH_OPT>/*_opt.cpp kernels are compiled in place of the reference kernels.")
 set_property(CACHE ARCH_OPT PROPERTY STRINGS "" tianhe orise sunway)
 
+# Stage-1 device-only covariance optimization: when ON (and on the LLVM-MLIR-HIP
+# path), the `covariance` target is compiled with `-Xcgeist
+# --sycl-covariance-loop-reorder`, rewriting the CovarianceCovar kernel body to
+# a register-blocked loop reorder that hoists the column-j1 load. Off by default
+# so the baseline (no-pass) build is unchanged; turn ON for the A/B comparison.
+option(COVARIANCE_LOOP_REORDER "Enable the sycl-covariance-loop-reorder cgeist pass on the covariance target (LLVM-MLIR-HIP only)" OFF)
+
 set(known_arch_opts tianhe orise sunway)
 if(ARCH_OPT)
   list(FIND known_arch_opts ${ARCH_OPT} arch_idx)
@@ -163,6 +170,10 @@ foreach(benchmark IN LISTS benchmarks)
   if(SYCL_IMPL STREQUAL "triSYCL")
     add_sycl_to_target(${target})
     target_compile_definitions(${target} PRIVATE __TRISYCL__)
+  endif()
+
+  if(COVARIANCE_LOOP_REORDER AND target STREQUAL "covariance" AND SYCL_IMPL STREQUAL "LLVM-MLIR-HIP")
+    target_compile_options(${target} PRIVATE -Xcgeist --sycl-covariance-loop-reorder)
   endif()
 
   install(TARGETS ${target} RUNTIME DESTINATION bin/benchmarks/)
