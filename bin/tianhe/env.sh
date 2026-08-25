@@ -42,7 +42,7 @@ export C_INCLUDE_PATH=${HT_ROOT}/include:${HWLOC_ROOT}/include:${POCL_ROOT}/incl
 export PKG_CONFIG_PATH=${HWLOC_ROOT}/lib/pkgconfig:${POCL_ROOT}/lib/pkgconfig:$PKG_CONFIG_PATH
 
 # LLVM
-export LLVM_ROOT=/thfs1/software/llvm/llvm17-mt
+export LLVM_ROOT=/thfs1/software/llvm/llvm17-mt1
 
 # POCL and MT env setting
 export POCL_DEBUG=0;

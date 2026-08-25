@@ -1,0 +1,173 @@
+#include <string>
+#include <vector>
+
+#include <cstdlib>
+
+#include <CL/sycl.hpp>
+
+#include "common.h"
+#include "polybenchUtilFuncts.h"
+
+using DATA_TYPE = float;
+
+class Mvt1;
+class Mvt2;
+
+void init_arrays(DATA_TYPE* a, DATA_TYPE* x1, DATA_TYPE* x2, DATA_TYPE* y_1, DATA_TYPE* y_2, size_t size) {
+	const auto N = size;
+
+	for(size_t i = 0; i < N; i++) {
+		x1[i] = 0.0;
+		x2[i] = 0.0;
+		y_1[i] = 1.0;
+		y_2[i] = 1.0;
+
+		for(size_t j = 0; j < N; j++) {
+			a[i * N + j] = (DATA_TYPE)(i + j + 1.0) / N;
+		}
+	}
+}
+
+void runMvt(DATA_TYPE* a, DATA_TYPE* x1, DATA_TYPE* x2, DATA_TYPE* y1, DATA_TYPE* y2, size_t size) {
+	const auto N = size;
+
+	for(size_t i = 0; i < N; i++) {
+		for(size_t j = 0; j < N; j++) {
+			x1[i] = x1[i] + a[i * N + j] * y1[j];
+		}
+	}
+
+	for(size_t k = 0; k < N; k++) {
+		for(size_t l = 0; l < N; l++) {
+			x2[k] = x2[k] + a[k * N + l] * y2[l];
+		}
+	}
+}
+
+class Polybench_Mvt {
+  public:
+	Polybench_Mvt(const BenchmarkArgs& args) : args(args), size(args.problem_size) {}
+
+	void setup() {
+		a.resize(size * size);
+		x1.resize(size);
+		x2.resize(size);
+		y1.resize(size);
+		y2.resize(size);
+
+		init_arrays(a.data(), x1.data(), x2.data(), y1.data(), y2.data(), size);
+
+		a_buffer .initialize(args.device_queue, a.data(), cl::sycl::range<2>(size, size));
+		x1_buffer.initialize(args.device_queue, x1.data(), cl::sycl::range<1>(size));
+		x2_buffer.initialize(args.device_queue, x2.data(), cl::sycl::range<1>(size));
+		y1_buffer.initialize(args.device_queue, y1.data(), cl::sycl::range<1>(size));
+		y2_buffer.initialize(args.device_queue, y2.data(), cl::sycl::range<1>(size));
+	}
+
+	void run(std::vector<cl::sycl::event>& events) {
+		using namespace cl::sycl;
+
+		// Optimized MVT (MT3K-DSP / tianhe): x1 = A*y1, x2 = A*y2, A row-major (N x N).
+		//
+		// This is the atax_opt / bicg_opt register-accumulator lever (see
+		// [[mocl-dsp-constraints]]) applied to BOTH kernels. The baseline
+		// (polybench/mvt.cpp) does `x1[i] += a*y1[j]` / `x2[k] += a*y2[l]` inside the
+		// column loop. Under the DSP build's POCL_EXTRA_BUILD_FLAGS="-cl-opt-disable"
+		// the compiler does NOT hoist x1[i]/x2[k] into a register, so the output is
+		// touched N times per element -- the main inefficiency on the MT3K DSP.
+		// Accumulating in a scalar register and storing once fixes that (the bulk of
+		// the win).
+		//
+		//   * No access::target::local, no barriers, no nd_range: the orise twin
+		//     raises occupancy via a per-row work-group tree reduction in local
+		//     memory; that path hangs the MOCL backend on the DSP (1D local accessors
+		//     + barriers are not supported) and is dropped. On CPU/GPU -- where the
+		//     device compiler already hoists the `+=` into a register -- the
+		//     register-accumulator rewrite is a no-op, so this version is never a
+		//     regression.
+		//   * Both kernels: one thread per output row, reduction over the contiguous
+		//     column axis (j/l) -> a[{row,col}] reads coalesced. x1/x2 start at 0
+		//     (vector value-init) -> discard_write from zero.
+
+		events.push_back(args.device_queue.submit([&](handler& cgh) {
+			auto a = a_buffer.get_access<access::mode::read>(cgh);
+			auto y1 = y1_buffer.get_access<access::mode::read>(cgh);
+			auto x1 = x1_buffer.get_access<access::mode::discard_write>(cgh);
+
+			cgh.parallel_for<Mvt1>(x1_buffer.get_range(), [=, N_ = size](item<1> item) {
+				const auto i = item[0];
+
+				DATA_TYPE acc = DATA_TYPE(0);
+				for(size_t j = 0; j < N_; j++) {
+					acc += a[{i, j}] * y1[j];
+				}
+				x1[item] = acc;
+			});
+		}));
+
+		events.push_back(args.device_queue.submit([&](handler& cgh) {
+			auto a = a_buffer.get_access<access::mode::read>(cgh);
+			auto y2 = y2_buffer.get_access<access::mode::read>(cgh);
+			auto x2 = x2_buffer.get_access<access::mode::discard_write>(cgh);
+
+			cgh.parallel_for<Mvt2>(x2_buffer.get_range(), [=, N_ = size](item<1> item) {
+				const auto k = item[0];
+
+				DATA_TYPE acc = DATA_TYPE(0);
+				for(size_t l = 0; l < N_; l++) {
+					acc += a[{k, l}] * y2[l];
+				}
+				x2[item] = acc;
+			});
+		}));
+	}
+
+	bool verify(VerificationSetting&) {
+		constexpr auto ERROR_THRESHOLD = 0.05;
+
+		std::vector<DATA_TYPE> x1_cpu(size);
+		std::vector<DATA_TYPE> x2_cpu(size);
+
+		// Trigger writeback
+		x1_buffer.reset();
+		x2_buffer.reset();
+
+		init_arrays(a.data(), x1_cpu.data(), x2_cpu.data(), y1.data(), y2.data(), size);
+
+		runMvt(a.data(), x1_cpu.data(), x2_cpu.data(), y1.data(), y2.data(), size);
+
+		for(size_t i = 0; i < size; i++) {
+			auto diff = percentDiff(x1_cpu[i], x1[i]);
+			if(diff > ERROR_THRESHOLD) return false;
+
+			diff = percentDiff(x2_cpu[i], x2[i]);
+			if(diff > ERROR_THRESHOLD) return false;
+		}
+
+		return true;
+	}
+
+	static std::string getBenchmarkName(BenchmarkArgs& args) { return "Polybench_Mvt_Opt"; }
+
+  private:
+	BenchmarkArgs args;
+
+	const size_t size;
+	std::vector<DATA_TYPE> a;
+	std::vector<DATA_TYPE> x1;
+	std::vector<DATA_TYPE> x2;
+	std::vector<DATA_TYPE> y1;
+	std::vector<DATA_TYPE> y2;
+
+	PrefetchedBuffer<DATA_TYPE, 2> a_buffer;
+	PrefetchedBuffer<DATA_TYPE, 1> x1_buffer;
+	PrefetchedBuffer<DATA_TYPE, 1> x2_buffer;
+	PrefetchedBuffer<DATA_TYPE, 1> y1_buffer;
+	PrefetchedBuffer<DATA_TYPE, 1> y2_buffer;
+};
+
+int main(int argc, char** argv) {
+	BenchmarkApp app(argc, argv);
+	app.run<Polybench_Mvt>();
+	return 0;
+}
