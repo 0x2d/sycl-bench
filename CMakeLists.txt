@@ -69,12 +69,62 @@ endif()
 set(ARCH_OPT "" CACHE STRING "Architecture-specific optimized kernels to build (e.g. tianhe, orise). When set, the matching polybench/<ARCH_OPT>/*_opt.cpp kernels are compiled in place of the reference kernels.")
 set_property(CACHE ARCH_OPT PROPERTY STRINGS "" tianhe orise sunway)
 
-# Stage-1 device-only covariance optimization: when ON (and on the LLVM-MLIR-HIP
-# path), the `covariance` target is compiled with `-Xcgeist
-# --sycl-covariance-loop-reorder`, rewriting the CovarianceCovar kernel body to
-# a register-blocked loop reorder that hoists the column-j1 load. Off by default
-# so the baseline (no-pass) build is unchanged; turn ON for the A/B comparison.
-option(COVARIANCE_LOOP_REORDER "Enable the sycl-covariance-loop-reorder cgeist pass on the covariance target (LLVM-MLIR-HIP only)" OFF)
+# CovarianceCovar: register-blocked loop reorder (hoist column-j1 load).
+# LLVM-MLIR-HIP only; on by default.
+option(COVARIANCE_LOOP_REORDER "Enable the sycl-covariance-loop-reorder cgeist pass on the covariance target (LLVM-MLIR-HIP only)" ON)
+
+# Syr2k2: register accumulator (single C read/write, scf.while->scf.for, hoist i/j/M).
+# LLVM-MLIR-HIP only; on by default.
+option(SYRK_REGISTER_ACCUMULATOR "Enable the sycl-syrk-register-accumulator cgeist pass on the syrk target (LLVM-MLIR-HIP only)" ON)
+
+# Syr2k2: paired device+host passes — --sycl-syrk-register-tile (8x8 register tile
+# at (item_id*8, item_id*8)) and -fsycl-rewrite-syrk-range (range<2>(N,N) ->
+# range<2>(ceil(N/8), ceil(N/8))). Reproduces polybench/orise/syrk_opt.cpp (~1.46x
+# on gfx906) without touching benchmark source. LLVM-MLIR-HIP only; on by default.
+option(SYRK_LAUNCH_TILE "Enable the paired sycl-syrk-register-tile (device) + sycl-rewrite-syrk-range (host launch shrink) passes on the syrk target (LLVM-MLIR-HIP only)" ON)
+
+# Syr2k1: paired device+host passes — --sycl-syr2k-register-tile (8x8 register tile
+# at (item_id*8, item_id*8), 16 loads per k feeding 2 FMAs per cell for the A*B^T
+# and B*A^T terms) and -fsycl-rewrite-syr2k-range (range<2>(N,N) ->
+# range<2>(ceil(N/8), ceil(N/8))). Reproduces polybench/orise/syr2k_opt.cpp without
+# touching benchmark source. LLVM-MLIR-HIP only; on by default.
+option(SYR2K_LAUNCH_TILE "Enable the paired sycl-syr2k-register-tile (device) + sycl-rewrite-syr2k-range (host launch shrink) passes on the syr2k target (LLVM-MLIR-HIP only)" ON)
+
+# 2mm: paired device+host+runtime passes — --sycl-2mm-local-tile (2mm_opt's
+# LDS tiling: 16x16 work-groups cooperatively stage 16x16 A/B tiles in local
+# memory with rocdl.barrier sync; one output cell + scalar accumulator per
+# work-item, for BOTH GEMM kernels; kernel 1 seeded from C, kernel 2 seeded
+# from zero) and -fsycl-rewrite-2mm-range (range<2>(N,N) ->
+# range<2>(ceil16(N), ceil16(N)) on BOTH launches). The (16,16) work-group
+# shape is supplied at RUN time by SYCL_FORCE_LOCAL_SIZE=16,16 (this tree's
+# runtime; set it when running the tiled binary, leave it unset for A/B
+# baselines). Reproduces polybench/orise/2mm_opt.cpp without touching
+# benchmark source. LLVM-MLIR-HIP only; on by default.
+option(TWO_MM_LAUNCH_TILE "Enable the paired sycl-2mm-local-tile (device) + sycl-rewrite-2mm-range (host launch ceil16 padding) passes on the 2mm target (LLVM-MLIR-HIP only; run with SYCL_FORCE_LOCAL_SIZE=16,16)" ON)
+
+# 3mm: paired device+host+runtime passes -- --sycl-3mm-local-tile (3mm_opt's
+# LDS tiling: 16x16 work-groups cooperatively stage 16x16 A/B tiles in local
+# memory with rocdl.barrier sync; one output cell + scalar accumulator per
+# work-item, for ALL THREE GEMM kernels, each seeded from the existing
+# read_write output) and -fsycl-rewrite-3mm-range (range<2>(N,N) ->
+# range<2>(ceil16(N), ceil16(N)) on ALL THREE launches). The (16,16)
+# work-group shape is supplied at RUN time by SYCL_FORCE_LOCAL_SIZE=16,16
+# (this tree's runtime; set it when running the tiled binary, leave it unset
+# for A/B baselines). Reproduces polybench/orise/3mm_opt.cpp without
+# touching benchmark source. LLVM-MLIR-HIP only; on by default.
+option(THREE_MM_LAUNCH_TILE "Enable the paired sycl-3mm-local-tile (device) + sycl-rewrite-3mm-range (host launch ceil16 padding) passes on the 3mm target (LLVM-MLIR-HIP only; run with SYCL_FORCE_LOCAL_SIZE=16,16)" ON)
+
+# gemm: paired device+host+runtime passes -- --sycl-gemm-local-tile
+# (gemm_opt's LDS tiling: 16x16 work-groups cooperatively stage 16x16 A/B
+# tiles in local memory with rocdl.barrier sync; one output cell + scalar
+# accumulator per work-item, seeded from C*BETA with ALPHA-scaled FMAs) and
+# -fsycl-rewrite-gemm-range (range<2>(N,N) ->
+# range<2>(ceil16(N),ceil16(N))). The (16,16) work-group shape is supplied
+# at RUN time by SYCL_FORCE_LOCAL_SIZE=16,16 (this tree's runtime; set it
+# when running the tiled binary, leave it unset for A/B baselines).
+# Reproduces polybench/orise/gemm_opt.cpp without touching benchmark
+# source. LLVM-MLIR-HIP only; on by default.
+option(GEMM_LAUNCH_TILE "Enable the paired sycl-gemm-local-tile (device) + sycl-rewrite-gemm-range (host launch ceil16 padding) passes on the gemm target (LLVM-MLIR-HIP only; run with SYCL_FORCE_LOCAL_SIZE=16,16)" ON)
 
 set(known_arch_opts tianhe orise sunway)
 if(ARCH_OPT)
@@ -174,6 +224,32 @@ foreach(benchmark IN LISTS benchmarks)
 
   if(COVARIANCE_LOOP_REORDER AND target STREQUAL "covariance" AND SYCL_IMPL STREQUAL "LLVM-MLIR-HIP")
     target_compile_options(${target} PRIVATE -Xcgeist --sycl-covariance-loop-reorder)
+  endif()
+
+  if(SYRK_REGISTER_ACCUMULATOR AND target STREQUAL "syrk" AND SYCL_IMPL STREQUAL "LLVM-MLIR-HIP")
+    # SHELL: keeps "-Xcgeist <flag>" as one unit so CMake does not deduplicate
+    # the -Xcgeist token when multiple -Xcgeist options land on the same target.
+    target_compile_options(${target} PRIVATE "SHELL:-Xcgeist --sycl-syrk-register-accumulator")
+  endif()
+
+  if(SYRK_LAUNCH_TILE AND target STREQUAL "syrk" AND SYCL_IMPL STREQUAL "LLVM-MLIR-HIP")
+    target_compile_options(${target} PRIVATE "SHELL:-Xcgeist --sycl-syrk-register-tile" -Xclang -fsycl-rewrite-syrk-range)
+  endif()
+
+  if(SYR2K_LAUNCH_TILE AND target STREQUAL "syr2k" AND SYCL_IMPL STREQUAL "LLVM-MLIR-HIP")
+    target_compile_options(${target} PRIVATE "SHELL:-Xcgeist --sycl-syr2k-register-tile" -Xclang -fsycl-rewrite-syr2k-range)
+  endif()
+
+  if(TWO_MM_LAUNCH_TILE AND target STREQUAL "2mm" AND SYCL_IMPL STREQUAL "LLVM-MLIR-HIP")
+    target_compile_options(${target} PRIVATE "SHELL:-Xcgeist --sycl-2mm-local-tile" -Xclang -fsycl-rewrite-2mm-range)
+  endif()
+
+  if(THREE_MM_LAUNCH_TILE AND target STREQUAL "3mm" AND SYCL_IMPL STREQUAL "LLVM-MLIR-HIP")
+    target_compile_options(${target} PRIVATE "SHELL:-Xcgeist --sycl-3mm-local-tile" -Xclang -fsycl-rewrite-3mm-range)
+  endif()
+
+  if(GEMM_LAUNCH_TILE AND target STREQUAL "gemm" AND SYCL_IMPL STREQUAL "LLVM-MLIR-HIP")
+    target_compile_options(${target} PRIVATE "SHELL:-Xcgeist --sycl-gemm-local-tile" -Xclang -fsycl-rewrite-gemm-range)
   endif()
 
   install(TARGETS ${target} RUNTIME DESTINATION bin/benchmarks/)

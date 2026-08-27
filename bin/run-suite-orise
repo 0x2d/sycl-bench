@@ -141,6 +141,13 @@ default_profile = {
   'individual-benchmark-flags' : {
     'usm_instr_mix' : ['--instr-mix=6'],
     'usm_pinned_overhead' : ['--num-copies=5'],
+  },
+  # Environment variables applied only to the listed benchmarks
+  # (merged over the inherited environment at launch time).
+  'individual-benchmark-env' : {
+    '2mm'   : {'SYCL_FORCE_LOCAL_SIZE' : '16,16'},
+    '3mm'   : {'SYCL_FORCE_LOCAL_SIZE' : '16,16'},
+    'gemm'  : {'SYCL_FORCE_LOCAL_SIZE' : '16,16'},
   }
 }
 
@@ -172,12 +179,18 @@ profiles = {
 }
 
 
-def invoke_benchmark(benchmark_executable, args):
+def invoke_benchmark(benchmark_executable, args, extra_env=None):
   print("__________________________________________________\n")
   print("{} {}".format(os.path.basename(benchmark_executable), " ".join(args)))
-  
+
+  env = os.environ.copy()
+  if extra_env:
+    for k, v in extra_env.items():
+      env[k] = v
+      print("  [env] {}={}".format(k, v))
+
   start = timeit.default_timer()
-  retcode = subprocess.call([benchmark_executable]+args)
+  retcode = subprocess.call([benchmark_executable]+args, env=env)
   stop  = timeit.default_timer()
   
   elapsed_time = stop - start
@@ -228,6 +241,7 @@ if __name__ == '__main__':
   # these are used to override arguments for invidual benchmarks
   individual_benchmark_options = profile['individual-benchmark-options']
   individual_benchmark_flags   = profile['individual-benchmark-flags']
+  individual_benchmark_env     = profile.get('individual-benchmark-env', {})
   
   if os.path.exists(output_file):
     print("Error: output file {} already exists!".format(output_file))
@@ -280,7 +294,9 @@ if __name__ == '__main__':
                 args.append('--size='+str(size))
                 args.append('--local='+str(localsize))
                 
-                retcode, elapsed_time = invoke_benchmark(benchmark_executable, args)
+                retcode, elapsed_time = invoke_benchmark(
+                    benchmark_executable, args,
+                    individual_benchmark_env.get(benchmark_name))
                 if retcode == 0:
                   max_runtime = max(max_runtime, elapsed_time)
                 else:
