@@ -148,6 +148,9 @@ default_profile = {
     '2mm'   : {'SYCL_FORCE_LOCAL_SIZE' : '16,16'},
     '3mm'   : {'SYCL_FORCE_LOCAL_SIZE' : '16,16'},
     'gemm'  : {'SYCL_FORCE_LOCAL_SIZE' : '16,16'},
+    'atax'  : {'SYCL_FORCE_LOCAL_SIZE' : '256'},
+    'bicg'  : {'SYCL_FORCE_LOCAL_SIZE' : '256'},
+    'mvt'   : {'SYCL_FORCE_LOCAL_SIZE' : '256'},
   }
 }
 

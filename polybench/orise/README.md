@@ -8,7 +8,9 @@ polybench/${ARCH_OPT}/*_opt.cpp)`. **All 13 orise opt kernels PASS verification*
 (≤5% CPU-vs-GPU percent-diff) at the sizes below — including the two-local-
 accessor tiled kernels (`2mm`/`3mm`/`correlation`/`gemm`/`covariance`/`gesummv`)
 that previously FAILed on this path; the backend bug behind those failures is
-now fixed in the toolchain (see caveat below).
+now fixed in the toolchain (see caveat below). A 14th opt,
+`2DConvolution_opt`, is a measured **tie** with its baseline (see its entry
+below for why that is the honest result on this device).
 
 Sizes and `--local` follow the `bin/run-suite-orise` `default_profile`:
 `gesummv`/`mvt`/`bicg` → 16384, `atax` → 4096, the rest → 1024 (default);
@@ -38,6 +40,7 @@ comparisons.
 | `syrk`          | 1024  | 0.087291 | 0.127820 | 0.081545 | 0.120028 | **1.46×** | PASS |
 | `fdtd2d`        | 1024  | 0.071891 | 0.084058 | 0.071205 | 0.083439 | **1.17×** | PASS |
 | `gramschmidt`   | 1024  | 1.003622 | 1.112011 | 1.002379 | 1.110931 | **1.11×** | PASS |
+| `2DConvolution` | 4096  | 0.000939 | 0.000930 | 0.000464 | 0.000460 | **0.99× (tie)** | PASS |
 
 Speedup = baseline / opt (both median, the robust central tendency for the
 bimodal DCU; min-based speedup is in the same ballpark and is listed for
@@ -119,6 +122,27 @@ baseline, all 26 runs (opt + baseline) PASS verification.**
   over i, local-mem tree reduction → `R[k,k] = sqrt(nrm)`, barrier, then the
   same threads write `Q[i,k] = A[i,k]/R[k,k]`. The dominant Gram3 rank-1 update
   is left at baseline (its two i-loops cannot fuse). Modest but safe win.
+- **`2DConvolution_opt` (1.00× — measured tie)** — the 9-point stencil is
+  already at this device's ceiling: one thread per output maximizes latency
+  hiding, the 9 coalesced loads ride ~2× free L2 reuse, and the baseline has
+  zero overhead. Eight optimization families were measured (interleaved A/B,
+  30 runs, size 4096) and **all tie or regress**: register tiles BM×BN ∈
+  {1×1…8×8} (both array- and scalar-staged) 1.05–1.55× slower (fewer threads ⇒
+  worse latency hiding); LDS 16×16 halo tile (full 16.7M threads, ~1.27 global
+  loads/output, ~7× less global traffic) ~10% slower — barrier + LDS cost more
+  than the L2 traffic saved; explicit nd_range work-group shapes (1×256 … 64×4,
+  128/256/512 threads) at best tie the runtime default, at worst 1.9× slower;
+  padded-grid + 2-compare early-out guard ties; forced (1,256) on the verbatim
+  baseline kernel ties; float4 vectorized tap loads (4 outputs/thread, 1.5
+  load instructions/output vs 9) ~20% slower — the 4× thread-count cut costs
+  more than the 6× instruction cut gains; backend
+  `SYCL_AMDGCN_OPT_FLAGS=-O3` ties. Separable two-pass decomposition is
+  mathematically unavailable (the coefficient matrix is rank-3). The shipped
+  kernel keeps the baseline mapping and only replaces the per-output
+  4-compare branch with a branch-free 2-compare guard (bit-identical
+  results). Same finding as `2DConvolution_tiled` on the DPC++/LLVM-HIP path
+  for the same device — the negative results are recorded in the source file
+  so nobody re-sweeps them.
 
 ## ✅ Caveat resolved — the two-local-accessor backend bug (fixed 2026-08-14)
 
