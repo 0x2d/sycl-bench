@@ -417,6 +417,29 @@ foreach(benchmark IN LISTS benchmarks)
   set_property(TARGET ${target} PROPERTY FOLDER ${dir})
 endforeach(benchmark)
 
+# Per-benchmark floating-point flags.
+# Pass e.g. -DSYCL_BENCH_FAST_MATH_BENCHMARKS="arith;gemm;2mm" and
+#          -DSYCL_BENCH_MIEEE_BENCHMARKS="reduction;median" to cmake.
+# NOTE: -ffast-math affects both host and device compilation, while -mieee is
+# forwarded by the swsycl driver only to the swg++ host compiler. Do not list
+# the same target in both variables.
+set(SYCL_BENCH_FAST_MATH_BENCHMARKS "" CACHE STRING
+    "Semicolon-separated benchmark target names compiled with -ffast-math")
+set(SYCL_BENCH_MIEEE_BENCHMARKS "" CACHE STRING
+    "Semicolon-separated benchmark target names compiled with -mieee")
+
+foreach(bench IN LISTS SYCL_BENCH_FAST_MATH_BENCHMARKS)
+  if(TARGET ${bench})
+    target_compile_options(${bench} PRIVATE -ffast-math)
+  endif()
+endforeach()
+
+foreach(bench IN LISTS SYCL_BENCH_MIEEE_BENCHMARKS)
+  if(TARGET ${bench})
+    target_compile_options(${bench} PRIVATE -mieee)
+  endif()
+endforeach()
+
 # The "compiletime" target should only be used in the context of the compile time evaluation script
 #set_target_properties(compiletime PROPERTIES EXCLUDE_FROM_ALL 1)
 
