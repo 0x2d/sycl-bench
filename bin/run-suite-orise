@@ -151,6 +151,13 @@ default_profile = {
     'atax'  : {'SYCL_FORCE_LOCAL_SIZE' : '256'},
     'bicg'  : {'SYCL_FORCE_LOCAL_SIZE' : '256'},
     'mvt'   : {'SYCL_FORCE_LOCAL_SIZE' : '256'},
+    'gesummv'   : {'SYCL_FORCE_LOCAL_SIZE' : '256'},
+    'lin_reg_coeff'   : {'SYCL_FORCE_LOCAL_SIZE' : '256'},
+    # fp64 3-kernel pass runbook: K1's LDS reduction tree + barriers assume
+    # 256-wide work-groups; rounding must be off so K4's launch-16 stays one
+    # auto group. Without these the fp64 slot fails verification.
+    'lin_reg_error'   : {'SYCL_FORCE_LOCAL_SIZE' : '256',
+                         'SYCL_DISABLE_PARALLEL_FOR_RANGE_ROUNDING' : '1'},
   }
 }
 

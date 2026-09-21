@@ -125,7 +125,9 @@ public:
 int main(int argc, char** argv)
 {
   BenchmarkApp app(argc, argv);
+#ifdef KMEANS_FP32
   app.run<KmeansBench<float>> ();
+#endif
   if(app.deviceSupportsFP64())
     app.run<KmeansBench<double>>();
   return 0;

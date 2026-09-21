@@ -1,4 +1,4 @@
-#pragma once 
+#pragma once
 #include <CL/sycl.hpp>
 
 #include <string>
@@ -10,6 +10,9 @@
 #include <type_traits>
 #include <unordered_set>
 #include <optional>
+#include <chrono>
+#include <ctime>
+#include <iomanip>
 
 #include "command_line.h"
 #include "result_consumer.h"
@@ -41,7 +44,8 @@ public:
   template<typename... Args>
   void run(Args&&... additionalArgs)
   {
-    args.result_consumer->proceedToBenchmark(Benchmark{args, additionalArgs...}.getBenchmarkName(args));
+    const std::string benchmark_name = Benchmark{args, additionalArgs...}.getBenchmarkName(args);
+    args.result_consumer->proceedToBenchmark(benchmark_name);
 
     args.result_consumer->consumeResult(
       "problem-size", std::to_string(args.problem_size));
@@ -58,6 +62,11 @@ public:
     for(auto h : hooks) h->atInit();
 
     bool all_runs_pass = true;
+    // Wall-clock timestamps of the measured section of the last completed run
+    std::size_t last_run = 0;
+    std::chrono::system_clock::time_point last_run_start{};
+    std::chrono::system_clock::time_point last_run_end{};
+    bool have_last_run = false;
     try {
       // Run until we have as many runs as requested or until
       // verification fails
@@ -77,6 +86,7 @@ public:
         // Performance critical measurement section starts here
         for(auto h : hooks) h->preKernel();
         const auto before = std::chrono::high_resolution_clock::now();
+        const auto wall_start = std::chrono::system_clock::now();
         if constexpr(detail::BenchmarkTraits<Benchmark>::supportsQueueProfiling) {
           b.run(run_events);
         } else {
@@ -84,8 +94,14 @@ public:
         }
         args.device_queue.wait_and_throw();
         const auto after = std::chrono::high_resolution_clock::now();
+        const auto wall_end = std::chrono::system_clock::now();
         for(auto h : hooks) h->postKernel();
         // Performance critical measurement section ends here
+
+        last_run = run;
+        last_run_start = wall_start;
+        last_run_end = wall_end;
+        have_last_run = true;
 
         time_metrics.addTimingResult("run-time", std::chrono::duration_cast<std::chrono::nanoseconds>(after - before));
 
@@ -121,6 +137,12 @@ public:
       std::rethrow_exception(std::current_exception());
     }
 
+    if(have_last_run) {
+      std::cout << "[timestamps] " << benchmark_name << " run " << last_run
+                << ": start " << formatTimestamp(last_run_start)
+                << " end " << formatTimestamp(last_run_end) << std::endl;
+    }
+
     time_metrics.emitResults(*args.result_consumer);
 
     for (auto h : hooks) {
@@ -146,8 +168,20 @@ public:
   }
 
 private:
-  BenchmarkArgs args;  
+  BenchmarkArgs args;
   std::vector<BenchmarkHook*> hooks;
+
+  // Wall-clock timestamp as "YYYY-MM-DD HH:MM:SS.uuuuuu" (local time)
+  static std::string formatTimestamp(const std::chrono::system_clock::time_point& tp)
+  {
+    const std::time_t secs = std::chrono::system_clock::to_time_t(tp);
+    const auto usecs = std::chrono::duration_cast<std::chrono::microseconds>(
+        tp - std::chrono::time_point_cast<std::chrono::seconds>(tp)).count();
+    std::stringstream ss;
+    ss << std::put_time(std::localtime(&secs), "%Y-%m-%d %H:%M:%S")
+       << '.' << std::setw(6) << std::setfill('0') << usecs;
+    return ss.str();
+  }
 
   std::string getSyclImplementation() const {
 #if defined(__HIPSYCL__)

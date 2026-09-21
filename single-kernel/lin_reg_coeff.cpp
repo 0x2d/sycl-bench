@@ -194,7 +194,9 @@ int main(int argc, char** argv)
 {
   BenchmarkApp app(argc, argv);
   if(app.shouldRunNDRangeKernels()){
+#ifdef LINCOEFF_FP32
     app.run<LinearRegressionCoeffBench<float>>();
+#endif
     if(app.deviceSupportsFP64())
       app.run<LinearRegressionCoeffBench<double>>();
   }

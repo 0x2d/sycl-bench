@@ -226,6 +226,8 @@ public:
 int main(int argc, char** argv)
 {
   BenchmarkApp app(argc, argv);
+
+#ifdef SCALARPROD_NDRANGE
   if(app.shouldRunNDRangeKernels()) {
     app.run<ScalarProdBench<int, true>>();
     app.run<ScalarProdBench<long long, true>>();
@@ -233,6 +235,7 @@ int main(int argc, char** argv)
     if(app.deviceSupportsFP64())
       app.run<ScalarProdBench<double, true>>();
   }
+#endif
 
   app.run<ScalarProdBench<int, false>>();
   app.run<ScalarProdBench<long long, false>>();
