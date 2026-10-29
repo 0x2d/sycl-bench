@@ -21,10 +21,5 @@ export SYCL_MLIR_ROOT=/public/home/liuying/sycl-mlir/build/install
 export PATH=${SYCL_MLIR_ROOT}/bin:$PATH
 export LD_LIBRARY_PATH=${SYCL_MLIR_ROOT}/lib:$LD_LIBRARY_PATH
 
-# AMDGCN codegen tools the sycl-mlir backend shells out to (DTK 25.04.2).
-export SYCL_AMDGCN_OPT=/public/software/compiler/dtk/dtk-25.04.2/dcc/bin/opt
-export SYCL_AMDGCN_OPT_FLAGS=-O2
-export SYCL_AMDGCN_LLC=/public/software/compiler/dtk/dtk-25.04.2/dcc/bin/llc
-
 # Force the oneAPI runtime onto the HIP (AMD GPU) backend for benchmark runs.
 export ONEAPI_DEVICE_SELECTOR='hip:*'
