@@ -131,7 +131,7 @@ public:
 int main(int argc, char** argv)
 {
   BenchmarkApp app(argc, argv);
-#ifdef LINERROR_FP32
+#ifdef TEST
   app.run<LinearRegressionBench<float>>();
 #endif
   if(app.deviceSupportsFP64())

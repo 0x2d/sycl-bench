@@ -22,6 +22,7 @@
 #include "benchmark_hook.h"
 #include "benchmark_traits.h"
 #include "prefetched_buffer.h"
+#include "suite_parameters.h"
 #include "time_metrics.h"
 
 #ifdef NV_ENERGY_MEAS    
@@ -47,10 +48,32 @@ public:
     const std::string benchmark_name = Benchmark{args, additionalArgs...}.getBenchmarkName(args);
     args.result_consumer->proceedToBenchmark(benchmark_name);
 
+    // Report the fixed suite parameters (bin/run-suite-orise) instead of the
+    // values the benchmark was invoked with. The benchmark itself still runs
+    // with the passed-in --size/--local. dag_task_throughput_* have no fixed
+    // value (the suite sweeps them over a range of sizes) and fall back to
+    // reporting the passed-in values.
+    // Gated by SYCL_BENCH_FIXED_SUITE_PARAMS (CMake option
+    // ENABLE_TEST_AND_FIXED_SUITE_PARAMS): without it, the passed-in
+    // --size/--local are always reported.
+#ifdef SYCL_BENCH_FIXED_SUITE_PARAMS
+    if(const SuiteParameters* fixed = fixedSuiteParameters(args.executable_name)) {
+      args.result_consumer->consumeResult(
+          "problem-size", std::to_string(fixed->problem_size));
+      args.result_consumer->consumeResult(
+          "local-size", std::to_string(fixed->local_size));
+    } else {
+      args.result_consumer->consumeResult(
+          "problem-size", std::to_string(args.problem_size));
+      args.result_consumer->consumeResult(
+          "local-size", std::to_string(args.local_size));
+    }
+#else
     args.result_consumer->consumeResult(
-      "problem-size", std::to_string(args.problem_size));
+        "problem-size", std::to_string(args.problem_size));
     args.result_consumer->consumeResult(
-      "local-size", std::to_string(args.local_size));
+        "local-size", std::to_string(args.local_size));
+#endif
     args.result_consumer->consumeResult(
       "device-name", args.device_queue.get_device()
                            .template get_info<cl::sycl::info::device::name>());
@@ -98,10 +121,9 @@ public:
         for(auto h : hooks) h->postKernel();
         // Performance critical measurement section ends here
 
-        last_run = run;
-        last_run_start = wall_start;
-        last_run_end = wall_end;
-        have_last_run = true;
+        std::cout << "[timestamps] " << benchmark_name << " run " << run
+                  << ": start " << formatTimestamp(wall_start)
+                  << " end " << formatTimestamp(wall_end) << std::endl;
 
         time_metrics.addTimingResult("run-time", std::chrono::duration_cast<std::chrono::nanoseconds>(after - before));
 
@@ -135,12 +157,6 @@ public:
     } catch(...) {
       args.result_consumer->discard();
       std::rethrow_exception(std::current_exception());
-    }
-
-    if(have_last_run) {
-      std::cout << "[timestamps] " << benchmark_name << " run " << last_run
-                << ": start " << formatTimestamp(last_run_start)
-                << " end " << formatTimestamp(last_run_end) << std::endl;
     }
 
     time_metrics.emitResults(*args.result_consumer);

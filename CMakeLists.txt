@@ -82,6 +82,21 @@ if(ARCH_OPT)
   endif()
 endif()
 
+# When ON:
+#   * scalar_prod, lin_reg_error and lin_reg_coeff compile their #ifdef TEST
+#     code paths -- the fp32/int/long-long instantiations that the stock
+#     suite skips (e.g. LinearRegressionBench<float>, ScalarProdBench
+#     NDRange + hierarchical non-double variants).
+#   * Every benchmark defines SYCL_BENCH_FIXED_SUITE_PARAMS and reports the
+#     fixed run-suite problem-size/local-size (1024/256; see
+#     include/suite_parameters.h) in its output instead of the --size/--local
+#     values it was invoked with.
+# When OFF (default): the three benchmarks build only their default (fp64/double)
+# instantiations, and all benchmarks report the passed-in --size/--local.
+# Implementation-independent: applies to every SYCL_IMPL.
+option(ENABLE_TEST_AND_FIXED_SUITE_PARAMS
+  "Compile the #ifdef TEST paths in scalar_prod/lin_reg_error/lin_reg_coeff and report fixed suite parameters (1024/256) instead of the passed-in --size/--local" OFF)
+
 set(benchmarks
   micro/arith.cpp
   micro/DRAM.cpp
@@ -174,6 +189,16 @@ foreach(benchmark IN LISTS benchmarks)
   if(SYCL_IMPL STREQUAL "triSYCL")
     add_sycl_to_target(${target})
     target_compile_definitions(${target} PRIVATE __TRISYCL__)
+  endif()
+
+  # ENABLE_TEST_AND_FIXED_SUITE_PARAMS: the #ifdef TEST instantiations in
+  # scalar_prod/lin_reg_error/lin_reg_coeff, and the fixed suite-parameter
+  # reporting (SYCL_BENCH_FIXED_SUITE_PARAMS) in the shared harness.
+  if(ENABLE_TEST_AND_FIXED_SUITE_PARAMS)
+    target_compile_definitions(${target} PRIVATE SYCL_BENCH_FIXED_SUITE_PARAMS)
+    if(target MATCHES "^(scalar_prod|lin_reg_error|lin_reg_coeff)$")
+      target_compile_definitions(${target} PRIVATE TEST)
+    endif()
   endif()
 
   # LLVM-MLIR-HIP per-benchmark cgeist / -fsycl-rewrite opt passes.

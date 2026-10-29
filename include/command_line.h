@@ -167,6 +167,9 @@ struct BenchmarkArgs
   CommandLine cli;
   std::shared_ptr<ResultConsumer> result_consumer;
   bool warmup_run;
+  // Basename of argv[0] (e.g. 'atax'), used to look up the fixed suite
+  // parameters reported in the benchmark output (see suite_parameters.h).
+  std::string executable_name;
 };
 
 class CUDASelector : public cl::sycl::device_selector {
@@ -184,8 +187,13 @@ public:
 class BenchmarkCommandLine
 {
 public:
-  BenchmarkCommandLine(int argc, char **argv) 
-  : cli_parser{argc, argv} {}
+  BenchmarkCommandLine(int argc, char **argv)
+  : cli_parser{argc, argv}
+  {
+    if(argc > 0 && argv[0] != nullptr) {
+      executable_name = basenameOf(argv[0]);
+    }
+  }
 
   BenchmarkArgs getBenchmarkArgs() const
   {
@@ -223,10 +231,24 @@ public:
                                              verification_range},
                          cli_parser,
                          result_consumer,
-                         warmup_run};
+                         warmup_run,
+                         executable_name};
   }
 
 private:
+  // Basename of the program path, e.g. '/path/to/atax' -> 'atax'.
+  // A trailing '.exe' is stripped as well; this is the name the suite
+  // runner (bin/run-suite-orise) uses to key per-benchmark options.
+  static std::string basenameOf(const char* argv0)
+  {
+    std::string path{argv0};
+    const auto slash = path.find_last_of('/');
+    std::string name =
+        (slash == std::string::npos) ? path : path.substr(slash + 1);
+    if(name.length() > 4 && name.substr(name.length() - 4) == ".exe")
+      name.resize(name.length() - 4);
+    return name;
+  }
   std::shared_ptr<ResultConsumer>
 
   getResultConsumer(const std::string& result_consumer_name) const
@@ -266,6 +288,7 @@ private:
   }
 
   CommandLine cli_parser;
+  std::string executable_name;
 };
 
 #endif
